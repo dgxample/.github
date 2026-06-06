@@ -4,7 +4,7 @@ A collection of secure, standardized Docker container configurations for running
 
 ## Why this exists
 
-Most AI/ML projects assume an x86 host and a discrete GPU with separate VRAM. DGX Spark's ARM CPU and unified CPU-GPU memory break both assumptions — often silently, in ways that take real debugging to find. Containers here have already been through that. The code in these containers also comes from strangers on the internet. Therefore, DGXample treats it as untrusted and contains it:
+Most AI/ML projects assume an x86 host and a discrete GPU with separate VRAM. DGX Spark's ARM CPU and unified CPU-GPU memory break both assumptions — often silently, in ways that take real debugging to find. Containers here have already been through that. The code in these containers also comes from strangers on the internet. Therefore, DGXample treats it as untrusted and restricts it.
 
 - **DGX Spark-tested.** Each container has been built and run on DGX Spark's ARM + unified memory architecture. Build failures, missing wheels, and architecture-specific patches are already resolved.
 - **Two run modes.** `--open` allows outbound traffic (for setup tasks like downloading models or packages). `--strict` (default) blocks *all* container-initiated outbound traffic — nothing leaves unless you allow it.
@@ -36,7 +36,7 @@ Every container repo follows the same pattern:
 
 ```bash
 ./setup            # prompts for UID, port, lockdown, optional HTTPS; writes .env
-./start-container  # build, apply lockdown (strict by default), wait for health
+./start-container  # start (builds on first run), apply lockdown (strict by default), wait for health
 ```
 
 The URL (`http://` or `https://`) is printed once the container is healthy.
@@ -50,6 +50,8 @@ The URL (`http://` or `https://`) is printed once the container is healthy.
 ```bash
 ./start-container            # strict (default) — blocks all outbound traffic
 ./start-container --open     # open — no outbound restrictions, no sudo needed
+./start-container --build    # force a rebuild (required after Dockerfile or entrypoint changes)
+./start-container --working  # start from the :working image (roll back after a broken build)
 ./start-container --without-tools  # rebuild without curl/dig/ping/nc (tools are included by default)
 ```
 
@@ -57,8 +59,9 @@ The URL (`http://` or `https://`) is printed once the container is healthy.
 |------|--------|
 | `--strict` | Blocks all container-initiated outbound traffic. Default. Requires sudo. |
 | `--open` | No traffic restrictions. Process hardening still applies. No sudo needed. |
+| `--build` | Force a docker compose build before starting. Skipped by default when the image already exists (BuildKit export/import adds several minutes even when all layers are cached). Before building, offers to save the current `:latest` as `:working` for easy rollback. |
+| `--working` | Start from the `:working` image instead of `:latest`. Use to roll back after a broken build without retagging manually. |
 | `--without-tools` | Excludes curl, dig, ping, nc, traceroute, wget. Triggers a rebuild. Default is to include them. |
-| `--no-build` | Skip the docker compose build step. Use when image is already built. |
 
 The default security level is read from `.env`; the flags override it.
 
@@ -103,7 +106,6 @@ For more accurate readings, run `docker stats <container-name>` while it's under
 ```bash
 ./security-check              # run posture checks against the running container
 ./security-compare            # run open vs strict back-to-back, diff side by side
-./security-compare --no-tools # skip installing diagnostic tools
 ```
 
 `security-check` verifies process hardening and network posture and prints a PASS/FAIL/SKIP result for each check. Tests needing diagnostic tools (`dig`, `ping`, `curl`, `nc`) are skipped if the image was built with `--without-tools`.
